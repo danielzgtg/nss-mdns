@@ -1,3 +1,11 @@
+
+
+#define _GNU_SOURCE
+#include <errno.h>
+
+extern char *program_invocation_name;
+extern char *program_invocation_short_name;
+
 /*
   This file is part of nss-mdns.
 
@@ -36,49 +44,55 @@ SPDX-License-Identifier: LGPL-2.1-or-later
 #include "util.h"
 #include "nss.h"
 
-static avahi_resolve_result_t do_avahi_resolve_name(int af, const char* name,
+       #include <execinfo.h>
+       #include <stdio.h>
+       #include <stdlib.h>
+       #include <unistd.h>
+
+       #define BT_BUF_SIZE 100
+
+       void
+       myfunc3(void)
+       {
+           int nptrs;
+           void *buffer[BT_BUF_SIZE];
+           char **strings;
+
+           nptrs = backtrace(buffer, BT_BUF_SIZE);
+           printf("backtrace() returned %d addresses\n", nptrs);
+
+           /* The call backtrace_symbols_fd(buffer, nptrs, STDOUT_FILENO)
+              would produce similar output to the following: */
+
+           strings = backtrace_symbols(buffer, nptrs);
+           if (strings == NULL) {
+               perror("backtrace_symbols");
+               exit(EXIT_FAILURE);
+           }
+
+           for (int j = 0; j < nptrs; j++)
+               printf("%s\n", strings[j]);
+
+           free(strings);
+       }
+
+
+avahi_resolve_result_t do_avahi_resolve_name(int af, const char* name,
                                                     userdata_t* userdata) {
-    bool ipv4_found = false;
-    bool ipv6_found = false;
-
-    if (af == AF_INET || af == AF_UNSPEC) {
-        query_address_result_t address_result;
-        switch (avahi_resolve_name(AF_INET, name, &address_result)) {
-        case AVAHI_RESOLVE_RESULT_SUCCESS:
-            append_address_to_userdata(&address_result, userdata);
-            ipv4_found = true;
-            break;
-
-        case AVAHI_RESOLVE_RESULT_HOST_NOT_FOUND:
-            break;
-
-        case AVAHI_RESOLVE_RESULT_UNAVAIL:
-            // Something went wrong, just fail.
-            return AVAHI_RESOLVE_RESULT_UNAVAIL;
-        }
+    if (!strcmp(program_invocation_name, "getent")) {
+        fprintf(stderr, "do_avahi_resolve_name af=%d\n", af);
+        myfunc3();
     }
-
-    if (af == AF_INET6 || af == AF_UNSPEC) {
-        query_address_result_t address_result;
-        switch (avahi_resolve_name(AF_INET6, name, &address_result)) {
-        case AVAHI_RESOLVE_RESULT_SUCCESS:
-            append_address_to_userdata(&address_result, userdata);
-            ipv6_found = true;
-            break;
-
-        case AVAHI_RESOLVE_RESULT_HOST_NOT_FOUND:
-            break;
-
-        case AVAHI_RESOLVE_RESULT_UNAVAIL:
-            // Something went wrong, just fail.
-            return AVAHI_RESOLVE_RESULT_UNAVAIL;
-        }
-    }
-
-    if (ipv4_found || ipv6_found) {
+    query_address_result_t address_result;
+    switch (avahi_resolve_name(af, name, &address_result)) {
+    case AVAHI_RESOLVE_RESULT_SUCCESS:
+        append_address_to_userdata(&address_result, userdata);
         return AVAHI_RESOLVE_RESULT_SUCCESS;
-    } else {
+    case AVAHI_RESOLVE_RESULT_HOST_NOT_FOUND:
         return AVAHI_RESOLVE_RESULT_HOST_NOT_FOUND;
+    default:
+        // Something went wrong, just fail.
+        return AVAHI_RESOLVE_RESULT_UNAVAIL;
     }
 }
 
@@ -187,6 +201,11 @@ enum nss_status _nss_mdns_gethostbyname3_r(const char* name, int af,
 
     buffer_t buf;
     userdata_t u;
+
+    if (!strcmp(program_invocation_name, "getent")) {
+        fprintf(stderr, "_nss_mdns_gethostbyname3_r af=%d\n", af);
+        myfunc3();
+    }
 
     // The interfaces for gethostbyname3_r and below do not actually support
     // returning results for more than one address family
